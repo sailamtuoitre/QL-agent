@@ -1,9 +1,12 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, status
 from app.core.config import settings
-import shutil
 import os
 import uuid
 from datetime import datetime
+import pandas as pd
+from io import BytesIO
+from pydantic import ValidationError
+from app.schemas.sales import SalesBatch
 
 router = APIRouter()
 
@@ -27,16 +30,45 @@ async def upload_file(file: UploadFile = File(...)):
     # 1. Validate extension
     ext = validate_file_extension(file.filename)
     
-    # 2. Generate unique filename (uuid + timestamp) to avoid conflicts
+    # 2. Read content
+    try:
+        content = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read file: {str(e)}")
+
+    # 3. Parse with Pandas
+    try:
+        if ext == '.csv':
+            df = pd.read_csv(BytesIO(content))
+        else:
+            df = pd.read_excel(BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse file: {str(e)}")
+
+    # 4. Validate with Pydantic
+    try:
+        # Data cleaning: normalize columns and handle NaNs
+        df.columns = df.columns.str.lower().str.strip()
+        df = df.replace({float('nan'): None})
+        records = df.to_dict(orient='records')
+        
+        # Validation
+        validated_batch = SalesBatch(root=records)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=e.errors())
+    except Exception as e:
+         raise HTTPException(status_code=400, detail=f"Data validation error: {str(e)}")
+
+    # 5. Generate unique filename (uuid + timestamp) to avoid conflicts
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_id = str(uuid.uuid4())
     safe_filename = f"{timestamp}_{file_id}{ext}"
     file_path = os.path.join(settings.RAW_DATA_DIR, safe_filename)
     
-    # 3. Save file to disk
+    # 6. Save file to disk
     try:
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(content)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -50,5 +82,6 @@ async def upload_file(file: UploadFile = File(...)):
         "filename": safe_filename,
         "original_filename": file.filename,
         "status": "uploaded",
-        "message": "File uploaded successfully. Processing queued."
+        "message": "File uploaded successfully. Processing queued.",
+        "record_count": len(validated_batch.root)
     }
