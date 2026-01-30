@@ -29,6 +29,17 @@ class Settings(BaseSettings):
     PROCESSED_DATA_DIR: str = os.path.join(DATA_DIR, "processed")
     CHROMA_PERSIST_DIRECTORY: str = os.path.join(DATA_DIR, "chroma_db")
 
+    # Redis / Celery
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_URL: str = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+
+    # LLM Settings
+    LLM_PROVIDER: str = "OPENAI"  # OPENAI, GEMINI, MOCK
+    OPENAI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = None
+    LLM_MODEL: str = "gpt-4o"
+
 settings = Settings()
 
 # Ensure data directories exist

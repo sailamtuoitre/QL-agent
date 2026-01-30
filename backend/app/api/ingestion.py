@@ -7,6 +7,7 @@ import pandas as pd
 from io import BytesIO
 from pydantic import ValidationError
 from app.schemas.sales import SalesBatch
+from app.workers.tasks import process_sales_file
 
 router = APIRouter()
 
@@ -28,7 +29,11 @@ async def upload_file(file: UploadFile = File(...)):
     The file will be saved to the 'raw' data directory and queued for processing.
     """
     # 1. Validate extension
-    ext = validate_file_extension(file.filename)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename is missing")
+    
+    filename: str = file.filename
+    ext = validate_file_extension(filename)
     
     # 2. Read content
     try:
@@ -53,7 +58,7 @@ async def upload_file(file: UploadFile = File(...)):
         records = df.to_dict(orient='records')
         
         # Validation
-        validated_batch = SalesBatch(root=records)
+        validated_batch = SalesBatch.model_validate(records)
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=e.errors())
     except Exception as e:
@@ -75,7 +80,8 @@ async def upload_file(file: UploadFile = File(...)):
             detail=f"Could not save file: {str(e)}"
         )
         
-    # TODO: Trigger Celery Task here (Next Step)
+    # 7. Trigger Celery Task to convert to Parquet
+    process_sales_file.delay(file_path)  # type: ignore
     
     return {
         "file_id": file_id,

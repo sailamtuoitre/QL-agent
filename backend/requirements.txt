@@ -19,6 +19,7 @@ langchain-openai>=0.0.5
 langchain-community>=0.0.10
 chromadb>=0.4.20
 openai>=1.0.0
+langchain-google-genai>=0.0.5
 
 # Async & Cache
 celery>=5.3.0
